@@ -32,17 +32,6 @@ const getConnection = () => {
   });
 };
 
-// const getUsers = getConnection().then((connection) => {
-//     return connection.query("Select * from User;");
-//   })
-//   .then(([results, fields]) => {
-//     console.log(results);
-//     console.log(fields);
-//   })
-//   .catch((err) => {
-//     console.error(err);
-//   });
-
 const corsOptions = {
   origin: "*",
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
@@ -70,9 +59,8 @@ app.get("/users", (req: Request, res: Response) => {
     .then((connection) => {
       return connection.query("Select * from User;");
     })
-    .then(([results, fields]) => {
+    .then(([results]) => {
       res.json(results);
-      // console.log(fields)
     })
     .catch((err) => {
       console.error(err);
@@ -86,9 +74,8 @@ app.get("/users/:id", (req: Request, res: Response) => {
         req.params.id,
       ]);
     })
-    .then(([results, fields]) => {
+    .then(([results]) => {
       res.json(results);
-      // console.log(fields)
     })
     .catch((err) => {
       console.error(err);
@@ -102,9 +89,8 @@ app.get("/users/:id/photos", (req: Request, res: Response) => {
         req.params.id,
       ]);
     })
-    .then(([results, fields]) => {
+    .then(([results]) => {
       res.json(results);
-      // console.log(fields)
     })
     .catch((err) => {
       console.error(err);
@@ -117,9 +103,8 @@ app.get("/users/:username/photos", (req: Request, res: Response) => {
         req.params.id,
       ]);
     })
-    .then(([results, fields]) => {
+    .then(([results]) => {
       res.json(results);
-      // console.log(fields)
     })
     .catch((err) => {
       console.error(err);
@@ -132,9 +117,8 @@ app.get("/users/photos/:id", (req: Request, res: Response) => {
         req.params.id,
       ]);
     })
-    .then(([results, fields]) => {
+    .then(([results]) => {
       res.json(results);
-      // console.log(fields)
     })
     .catch((err) => {
       console.error(err);
@@ -158,7 +142,9 @@ app.post("/users/:id/photos", (req: Request, res: Response) => {
       );
     })
     .then(([result]: any) => {
-      res.status(201).json({ message: "Photo added successfully", id: result.insertId });
+      res
+        .status(201)
+        .json({ message: "Photo added successfully", id: result.insertId });
     })
     .catch((err) => {
       console.error(err);
@@ -166,19 +152,33 @@ app.post("/users/:id/photos", (req: Request, res: Response) => {
     });
 });
 
-app.post('/users', (req: Request, res: Response) => {
-  const {username} = req.body;
-  if(!username) {
-    res.status(400).json({error: 'Missing required field: Username'})
+app.post("/users", (req: Request, res: Response) => {
+  const { username } = req.body;
+
+  if (!username) {
+    res.status(400).json({ error: "Missing required field: Username" });
   }
-  getConnection().then((connection) => {
-    return connection.execute('INSERT INTO User (username) VALUES (?);', [username]);
-  })
-  .catch((err) => {
-    console.error(err)
-    res.status(500).json({error: 'Database insertion failed.'})
-  })
-})
+  getConnection()
+    .then((connection) => {
+      return connection
+        .execute("SELECT id from User WHERE username =?;", [username])
+        .then(([results]: any) => {
+          if(results.length > 0) {
+            res.status(409).json({ error: "Username already exists" });
+            throw new Error("Username Exists");
+
+          }
+          return connection.execute('INSERT INTO User (username) VALUES (?);', [username]);
+        })
+    })
+    .then(([result]: any) => {
+      res.status(201).json({ message: "User created", id: result.insertId });
+    })
+    .catch((err) => {
+      console.error(err);
+      res.status(500).json({ error: "Database insertion failed." });
+    });
+});
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
