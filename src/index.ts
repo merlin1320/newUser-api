@@ -166,29 +166,19 @@ app.post("/users/:id/photos", (req: Request, res: Response) => {
     });
 });
 
-// app.post('/users', (req: Request, res: Response) =>{
-//     const username = req.body;
-//     if(!username){
-//       res.status(400).json({
-//         error: 'Username is a required field'
-//       })
-//       return;
-//     }
-//     getConnection().then((connection)=>{ return connection.execute('INSERT INTO `User` (username) VALUES (?,?)')}).then(([results, fields]) => {
-//       res.json(results);
-//       console.log(fields)
-//     })
-//     getConnection().then((connection) => {
-//     return connection.query("Select * from User;");
-//   })
-//   .then(([results, fields]) => {
-//     console.log(results);
-//     console.log(fields);
-//   })
-//   .catch((err) => {
-//     console.error(err);
-//   });
-//   })
+app.post('/users', (req: Request, res: Response) => {
+  const {username} = req.body;
+  if(!username) {
+    res.status(400).json({error: 'Missing required field: Username'})
+  }
+  getConnection().then((connection) => {
+    return connection.execute('INSERT INTO User (username) VALUES (?);', [username]);
+  })
+  .catch((err) => {
+    console.error(err)
+    res.status(500).json({error: 'Database insertion failed.'})
+  })
+})
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
