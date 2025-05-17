@@ -82,6 +82,34 @@ app.get("/users/:id", (req: Request, res: Response) => {
     });
 });
 
+app.get("/users/:username/photos", (req: Request, res: Response) => {
+  const username = req.params.username;
+  getConnection()
+    .then((connection) => {
+      return connection
+        .execute("Select * from User WHERE username = ?;", [username])
+        .then(([results]: any) => {
+          if (results.length === 0) {
+            res.status(400).json({ error: "No such User" });
+            throw new Error("No such User");
+          }
+          const userId = results[0].id;
+          return connection.execute(
+            "SELECT * from user_photo WHERE user_id = ?;",
+            [userId]
+          );
+        });
+    })
+    .then(([photos]) => {
+      res.json(photos);
+    })
+    .catch((err) => {
+      if (err.message === "No such User") return;
+      console.error(err);
+      res.status(500).json({ error: "Failed to fetch photos" });
+    });
+});
+
 app.get("/users/:id/photos", (req: Request, res: Response) => {
   getConnection()
     .then((connection) => {
@@ -96,20 +124,7 @@ app.get("/users/:id/photos", (req: Request, res: Response) => {
       console.error(err);
     });
 });
-app.get("/users/:username/photos", (req: Request, res: Response) => {
-  getConnection()
-    .then((connection) => {
-      return connection.execute("Select * from user_photo WHERE user_id = ?;", [
-        req.params.id,
-      ]);
-    })
-    .then(([results]) => {
-      res.json(results);
-    })
-    .catch((err) => {
-      console.error(err);
-    });
-});
+
 app.get("/users/photos/:id", (req: Request, res: Response) => {
   getConnection()
     .then((connection) => {
@@ -125,6 +140,41 @@ app.get("/users/photos/:id", (req: Request, res: Response) => {
     });
 });
 
+app.post("/users/:username/photos", (req: Request, res: Response) => {
+  const { photo_url, latitude, longitude } = req.body;
+  const username = req.params.username;
+
+  if (!photo_url || !latitude || !longitude) {
+    res.status(400).json({ error: "Missing required fields." });
+  }
+
+  getConnection()
+    .then((connection) => {
+      return connection
+        .execute("SELECT id from User WHERE username = ?;", [username])
+        .then(([results]: any) => {
+          if (results.length === 0) {
+            res.status(400).json({ error: "No such User" });
+            throw new Error("No such User");
+          }
+          const userId = results[0].id;
+          return connection.execute(
+            `INSERT INTO user_photo (photo_url, latitude, longitude, user_id)
+         VALUES (?, ?, ?, ?);`,
+            [photo_url, latitude, longitude, userId]
+          );
+        });
+    })
+    .then(([result]: any) => {
+      res
+        .status(201)
+        .json({ message: "Photo added successfully", id: result.insertId });
+    })
+    .catch((err) => {
+      console.error(err);
+      res.status(500).json({ error: "Database insertion failed." });
+    });
+});
 app.post("/users/:id/photos", (req: Request, res: Response) => {
   const { photo_url, latitude, longitude } = req.body;
   const userId = req.params.id;
@@ -163,13 +213,14 @@ app.post("/users", (req: Request, res: Response) => {
       return connection
         .execute("SELECT id from User WHERE username =?;", [username])
         .then(([results]: any) => {
-          if(results.length > 0) {
+          if (results.length > 0) {
             res.status(409).json({ error: "Username already exists" });
             throw new Error("Username Exists");
-
           }
-          return connection.execute('INSERT INTO User (username) VALUES (?);', [username]);
-        })
+          return connection.execute("INSERT INTO User (username) VALUES (?);", [
+            username,
+          ]);
+        });
     })
     .then(([result]: any) => {
       res.status(201).json({ message: "User created", id: result.insertId });
@@ -177,6 +228,93 @@ app.post("/users", (req: Request, res: Response) => {
     .catch((err) => {
       console.error(err);
       res.status(500).json({ error: "Database insertion failed." });
+    });
+});
+
+app.delete("/users/photos/:id", (req: Request, res: Response) => {
+  const photo_id = req.params.id;
+  getConnection()
+    .then((connection) => {
+      return connection
+        .execute("SELECT id from user_photo WHERE id =?;", [photo_id])
+        .then(([results]: any) => {
+          if (results.length === 0) {
+            res.status(400).json({ error: "No photo with that ID" });
+            throw new Error("Invalid photo ID");
+          }
+          return connection.execute("DELETE FROM user_photo WHERE id=?;", [
+            photo_id,
+          ]);
+        });
+    })
+    .then(([result]: any) => {
+      res.status(200).json({ message: "Photo deleted" });
+    })
+    .catch((err) => {
+      if (err.message === "Invalid photo ID") return;
+      console.error(err);
+      res.status(500).json({ error: "Database Deletion Failed." });
+    });
+});
+
+app.delete("/users/:username", (req: Request, res: Response) => {
+  const username = req.params.username;
+  getConnection()
+    .then((connection) => {
+      return connection
+        .execute("SELECT id from User WHERE username =?;", [username])
+        .then(([results]: any) => {
+          if (results.length === 0) {
+            res.status(400).json({ error: "No user with that Username" });
+            throw new Error("No such User");
+          }
+          const userId = results[0].id;
+          return connection
+            .execute("DELETE FROM user_photo WHERE user_id=?;", [userId])
+            .then(() => {
+              return connection.execute("DELETE from User where username=?;", [
+                username,
+              ]);
+            });
+        });
+    })
+    .then(([result]: any) => {
+      res.status(200).json({ message: "User and associated photos deleted" });
+    })
+    .catch((err) => {
+      if (err.message === "No such User") return;
+      console.error(err);
+      res.status(500).json({ error: "Database Deletion Failed." });
+    });
+});
+
+app.delete("/users/:id", (req: Request, res: Response) => {
+  const user_id = req.params.id;
+  getConnection()
+    .then((connection) => {
+      return connection
+        .execute("SELECT id from User WHERE id =?;", [user_id])
+        .then(([results]: any) => {
+          if (results.length === 0) {
+            res.status(400).json({ error: "No user with that ID" });
+            throw new Error("Invalid user ID");
+          }
+          return connection
+            .execute("DELETE FROM user_photo WHERE user_id=?;", [user_id])
+            .then(() => {
+              return connection.execute("DELETE from User where id=?;", [
+                user_id,
+              ]);
+            });
+        });
+    })
+    .then(([result]: any) => {
+      res.status(200).json({ message: "User and associated photos deleted" });
+    })
+    .catch((err) => {
+      if (err.message === "Invalid user ID") return;
+      console.error(err);
+      res.status(500).json({ error: "Database Deletion Failed." });
     });
 });
 
