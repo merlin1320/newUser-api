@@ -54,7 +54,18 @@ app.options("/users", (req: Request, res: Response) => {
   res.send();
 });
 
+// getConnection().then((connection)=> {
+//   return connection.query('Select * from User')
+// }).then(([results,fields]) =>{
+//   console.log(results)
+//   console.log(fields)
+// })
+// .catch((err)=>{
+//   console.error(err)
+// })
+
 //get all users
+
 app.get("/users", (req: Request, res: Response) => {
   getConnection()
     .then((connection) => {
@@ -73,17 +84,15 @@ app.get("/users/:identifier", (req: Request, res: Response) => {
   const identifier = req.params.identifier;
   getConnection()
     .then(async (connection) => {
-      let query, param;
+      let query;
       // Check if identifier is a number (ID)
       if (/^\d+$/.test(identifier)) {
         // Try to find user by ID
-        query = "SELECT * FROM User WHERE id = ?;";
-        param = identifier;
+        query = "SELECT * FROM User WHERE id = ? LIMIT 1;";
       } else {
-        query = "SELECT * FROM User WHERE username = ?;";
-        param = identifier;
+        query = "SELECT * FROM User WHERE username = ? LIMIT 1;";
       }
-      const [results]: any = await connection.execute(query, [param]);
+      const [results]: any = await connection.execute(query, [identifier]);
       if (results.length === 0) {
         res.status(404).json({ error: "No such User" });
         return;
