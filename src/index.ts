@@ -1,26 +1,10 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import mysql from "mysql2/promise";
-import { error, log } from "console";
+import { findUser } from "./userService";
 
 const app = express();
 const port = 3020;
-
-interface Users {
-  id: number;
-  username: string;
-  created: Date;
-  last_updated: Date;
-}
-interface user_photo {
-  id: number;
-  photo_url: string;
-  latitude: number;
-  longitude: number;
-  created: Date;
-  last_updated: Date;
-  user_id: number;
-}
 
 const getConnection = () => {
   return mysql.createConnection({
@@ -40,8 +24,6 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
-
-let Users: Users[] = [];
 
 app.get("/", (req: Request, res: Response) => {
   res.send("Hello, Express with TypeScript!");
@@ -84,20 +66,12 @@ app.get("/users/:identifier", (req: Request, res: Response) => {
   const identifier = req.params.identifier;
   getConnection()
     .then(async (connection) => {
-      let query;
-      // Check if identifier is a number (ID)
-      if (/^\d+$/.test(identifier)) {
-        // Try to find user by ID
-        query = "SELECT * FROM User WHERE id = ? LIMIT 1;";
-      } else {
-        query = "SELECT * FROM User WHERE username = ? LIMIT 1;";
-      }
-      const [results]: any = await connection.execute(query, [identifier]);
-      if (results.length === 0) {
+      const user = await findUser(connection, identifier);
+      if (!user) {
         res.status(404).json({ error: "No such User" });
         return;
       }
-      res.json(results[0]);
+      res.json(user);
     })
     .catch((err) => {
       console.error(err);
@@ -110,35 +84,15 @@ app.get("/users/:identifier/photos", (req: Request, res: Response) => {
   const identifier = req.params.identifier;
   getConnection()
     .then(async (connection) => {
-      let userId: number | null = null;
-      // Check if identifier is a number (ID)
-      if (/^\d+$/.test(identifier)) {
-        // Try to find user by ID
-        const [results]: any = await connection.execute(
-          "SELECT id FROM User WHERE id = ?;",
-          [identifier]
-        );
-        if (results.length === 0) {
-          res.status(400).json({ error: "No such User" });
-          throw new Error("No such User");
-        }
-        userId = results[0].id;
-      } else {
-        // Try to find user by username
-        const [results]: any = await connection.execute(
-          "SELECT id FROM User WHERE username = ?;",
-          [identifier]
-        );
-        if (results.length === 0) {
-          res.status(400).json({ error: "No such User" });
-          throw new Error("No such User");
-        }
-        userId = results[0].id;
+      const user = await findUser(connection, identifier);
+      if (!user) {
+        res.status(400).json({ error: "No such user" });
+        return;
       }
       // Fetch photos for the found user ID
       const [photos]: any = await connection.execute(
         "SELECT * FROM user_photo WHERE user_id = ?;",
-        [userId]
+        [user.id]
       );
       res.json(photos);
     })
@@ -171,20 +125,18 @@ app.post("/users", (req: Request, res: Response) => {
 
   if (!username) {
     res.status(400).json({ error: "Missing required field: Username" });
+    return
   }
   getConnection()
-    .then((connection) => {
-      return connection
-        .execute("SELECT id from User WHERE username =?;", [username])
-        .then(([results]: any) => {
-          if (results.length > 0) {
-            res.status(409).json({ error: "Username already exists" });
-            throw new Error("Username Exists");
-          }
-          return connection.execute("INSERT INTO User (username) VALUES (?);", [
-            username,
-          ]);
-        });
+    .then(async (connection) => {
+      const user = await findUser(connection, username);
+      if (user) {
+        res.status(409).json({ error: "Username already exists" });
+        throw new Error("Username Exists");
+      }
+      return connection.execute("INSERT INTO User (username) VALUES (?);", [
+        username,
+      ]);
     })
     .then(([result]: any) => {
       res.status(201).json({ message: "User created", id: result.insertId });
@@ -202,32 +154,19 @@ app.post("/users/:identifier/photos", (req: Request, res: Response) => {
 
   if (!photo_url || !latitude || !longitude) {
     res.status(400).json({ error: "Missing required fields." });
+    return
   }
 
   getConnection()
     .then(async (connection) => {
-      let userID: number | null = null;
-      let results: any;
-
-      if (/^\d+$/.test(identifier)) {
-        [results] = await connection.execute(
-          "SELECT id FROM User WHERE id = ?;",
-          [identifier]
-        );
-      } else {
-        [results] = await connection.execute(
-          "SELECT id FROM User WHERE username = ?;",
-          [identifier]
-        );
+      const user = await findUser(connection, identifier);
+      if (!user) {
+        res.status(400).json({ error: "No such user" });
+        return;
       }
-      if (results.length === 0) {
-        res.status(400).json({ error: "No such User" });
-        throw new Error("No such User");
-      }
-      userID = results[0].id;
       return connection.execute(
         "INSERT INTO user_photo (photo_url, latitude, longitude, user_id) VALUES (?,?,?,?);",
-        [photo_url, latitude, longitude, userID]
+        [photo_url, latitude, longitude, user.id]
       );
     })
     .then(([result]: any) => {
@@ -269,45 +208,30 @@ app.delete("/users/photos/:id", (req: Request, res: Response) => {
 });
 
 //delete all photos for user by ID or username
-app.delete("/users/:identifier", (req: Request, res: Response)=>{
-  let identifier = req.params.identifier
-
+app.delete("/users/:identifier", (req: Request, res: Response) => {
+  let identifier = req.params.identifier;
   getConnection()
-  .then(async (connection) => {
-    if(/^\d+$/.test(identifier)){
-      return connection.execute("SELECT id from User where id = ?;", [identifier])
-      .then(([results]:any)=>{
-        if(results.length ===0){
-          res.status(400).json({error: "No user with that ID"})
-          throw new Error("No such User")
-        }
-        return connection.execute("DELETE FROM user_photo WHERE user_id=?;", [identifier])
-        .then(()=> {
-          return connection.execute("DELETE from User WHERE id=?", [identifier])
-        })
-      })
-    }else{
-      return connection.execute("SELECT id from User where username = ?;", [identifier])
-      .then(([results]: any) => {
-        if(results.length ===0){
-          res.status(400).json({error: "No user with that username"})
-          throw new Error("No such User")
-        }
-        const userID = results[0].id
-        return connection.execute("DELETE FROM user_photo WHERE user_id=?;", [userID])
-        .then(()=> {
-          return connection.execute("DELETE from User WHERE id=?", [userID])
-        })
-      })
-    }
-  }).then(([result]:any) => {
-    res.status(200).json({message: "User and associated photos deleted"})
-  }).catch((err)=>{
-    if(err.message === "No such User") return;
-    console.error(err)
-    res.status(500).json({error: "Database Deletion failed"})
-  })
-})
+    .then(async (connection) => {
+      const user = await findUser(connection, identifier);
+      if (!user) {
+        res.status(400).json({ error: "No such user" });
+        return;
+      }
+      return connection
+        .execute("DELETE FROM user_photo WHERE user_id=?;", [user.id])
+        .then(() => {
+          return connection.execute("DELETE from User WHERE id=?", [user.id]);
+        });
+    })
+    .then(([result]: any) => {
+      res.status(200).json({ message: "User and associated photos deleted" });
+    })
+    .catch((err) => {
+      if (err.message === "No such User") return;
+      console.error(err);
+      res.status(500).json({ error: "Database Deletion failed" });
+    });
+});
 
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
